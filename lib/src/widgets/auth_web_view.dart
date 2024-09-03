@@ -82,7 +82,7 @@ class _OAuthWebViewState extends State<OAuthWebView> {
                 ? _firstLoading
                     ? widget.initFunc != null
                         ? setState(() {
-                            widget.initFunc;
+                            widget.initFunc!();
                             _isLoading = false;
                             _firstLoading = false;
                           })
