@@ -9,12 +9,13 @@ import '../services/auth_service.dart';
 class OAuthWebView extends StatefulWidget {
   final OAuthProvider provider;
   final Widget? loadingWidget;
+  final Color? backgroundColor;
 
-  const OAuthWebView({
-    super.key,
-    required this.provider,
-    this.loadingWidget,
-  });
+  const OAuthWebView(
+      {super.key,
+      required this.provider,
+      this.loadingWidget,
+      this.backgroundColor});
 
   @override
   State<OAuthWebView> createState() => _OAuthWebViewState();
@@ -117,7 +118,7 @@ class _OAuthWebViewState extends State<OAuthWebView> {
       );
     }
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: widget.backgroundColor ?? Colors.white,
       body: Stack(
         children: [
           if (_controller != null) WebViewWidget(controller: _controller!),
