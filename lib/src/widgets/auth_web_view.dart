@@ -96,7 +96,10 @@ class _OAuthWebViewState extends State<OAuthWebView> {
             },
           ),
         )
-        ..loadRequest(Uri.parse(authorizationUrl));
+        ..loadRequest(Uri.parse(authorizationUrl))
+        ..setBackgroundColor(
+          widget.backgroundColor ?? Colors.white,
+        );
 
       await controller
           .runJavaScript('document.cookie = "";'); // Çerezleri temizle

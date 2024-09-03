@@ -1,6 +1,6 @@
 name: authwebview
 description: A Flutter package for OAuth authentication using WebView.
-version: 1.0.2
+version: 1.0.4
 homepage: https://github.com/hakanmertb/authwebview
 
 environment:
