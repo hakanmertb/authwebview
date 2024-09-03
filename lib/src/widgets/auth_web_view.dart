@@ -9,13 +9,11 @@ import '../services/auth_service.dart';
 class OAuthWebView extends StatefulWidget {
   final OAuthProvider provider;
   final Widget? loadingWidget;
-  final void Function()? initFunc;
 
   const OAuthWebView({
     super.key,
     required this.provider,
     this.loadingWidget,
-    this.initFunc,
   });
 
   @override
@@ -26,7 +24,6 @@ class _OAuthWebViewState extends State<OAuthWebView> {
   WebViewController? _controller;
   bool _isLoading = true;
   String? _error;
-  bool _firstLoading = true;
 
   @override
   void initState() {
@@ -78,17 +75,8 @@ class _OAuthWebViewState extends State<OAuthWebView> {
           NavigationDelegate(
             onPageStarted: (_) =>
                 mounted ? setState(() => _isLoading = true) : null,
-            onPageFinished: (_) => mounted
-                ? _firstLoading
-                    ? widget.initFunc != null
-                        ? setState(() {
-                            widget.initFunc!();
-                            _isLoading = false;
-                            _firstLoading = false;
-                          })
-                        : setState(() => _isLoading = false)
-                    : setState(() => _isLoading = false)
-                : null,
+            onPageFinished: (_) =>
+                mounted ? setState(() => _isLoading = false) : null,
             onNavigationRequest: (NavigationRequest request) {
               if (request.url.startsWith(widget.provider.redirectUrl)) {
                 AuthService.handleRedirect(request.url, widget.provider)
@@ -129,6 +117,7 @@ class _OAuthWebViewState extends State<OAuthWebView> {
       );
     }
     return Scaffold(
+      backgroundColor: Colors.white,
       body: Stack(
         children: [
           if (_controller != null) WebViewWidget(controller: _controller!),

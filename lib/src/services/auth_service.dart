@@ -15,7 +15,7 @@ class AuthService {
 
   static Future<AuthorizationTokenResponse?> performOAuthFlow(
       BuildContext context, OAuthProvider provider,
-      {Widget? loadingWidget, void Function()? initFunc}) async {
+      {Widget? loadingWidget}) async {
     try {
       return await Navigator.push(
         context,
@@ -23,7 +23,6 @@ class AuthService {
           builder: (context) => OAuthWebView(
             provider: provider,
             loadingWidget: loadingWidget,
-            initFunc: initFunc,
           ),
         ),
       );
