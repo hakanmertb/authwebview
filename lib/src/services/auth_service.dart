@@ -14,8 +14,10 @@ class AuthService {
   static String _codeChallenge = '';
 
   static Future<AuthorizationTokenResponse?> performOAuthFlow(
-      BuildContext context, OAuthProvider provider,
-      {Widget? loadingWidget, Color? backgroundColor}) async {
+    BuildContext context,
+    OAuthProvider provider, {
+    Widget? loadingWidget,
+  }) async {
     try {
       return await Navigator.push(
         context,
@@ -23,7 +25,6 @@ class AuthService {
           builder: (context) => OAuthWebView(
             provider: provider,
             loadingWidget: loadingWidget,
-            backgroundColor: backgroundColor,
           ),
         ),
       );
