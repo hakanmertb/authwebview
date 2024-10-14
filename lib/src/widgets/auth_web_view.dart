@@ -94,17 +94,46 @@ class _OAuthWebViewState extends State<OAuthWebView> {
               cacheEnabled: false,
               javaScriptEnabled: true,
               userAgent: _userAgent,
+              defaultTextEncodingName: 'UTF-8',
+              useOnLoadResource: true,
+              useShouldInterceptAjaxRequest: true,
+              useShouldInterceptFetchRequest: true,
             ),
+            onWebViewCreated: (controller) {
+              controller.addJavaScriptHandler(
+                handlerName: 'consoleLog',
+                callback: (args) {
+                  print('WebView console: ${args.join(', ')}');
+                },
+              );
+            },
+            onLoadResource: (controller, resource) {
+              print('Loading resource: ${resource.url}');
+            },
+            shouldInterceptAjaxRequest: (controller, ajaxRequest) async {
+              ajaxRequest.headers['Accept-Charset'] = 'utf-8';
+              return ajaxRequest;
+            },
+            shouldInterceptFetchRequest: (controller, fetchRequest) async {
+              fetchRequest.headers['Accept-Charset'] = 'utf-8';
+              return fetchRequest;
+            },
             onLoadStart: (controller, url) {
               if (mounted) setState(() => _isLoading = true);
             },
-            onLoadStop: (controller, url) {
+            onLoadStop: (controller, url) async {
               if (mounted) {
                 if (_firstLoading && widget.initFunc != null) {
                   widget.initFunc!();
                   _firstLoading = false;
                 }
                 setState(() => _isLoading = false);
+
+                await controller.evaluateJavascript(source: '''
+                  console.log = function() {
+                    window.flutter_inappwebview.callHandler('consoleLog', ...arguments);
+                  }
+                ''');
               }
             },
             onReceivedError: (controller, request, error) {
