@@ -95,9 +95,6 @@ class _OAuthWebViewState extends State<OAuthWebView> {
               javaScriptEnabled: true,
               userAgent: _userAgent,
               defaultTextEncodingName: 'UTF-8',
-              useOnLoadResource: true,
-              useShouldInterceptAjaxRequest: true,
-              useShouldInterceptFetchRequest: true,
             ),
             onWebViewCreated: (controller) {
               controller.addJavaScriptHandler(
@@ -106,17 +103,6 @@ class _OAuthWebViewState extends State<OAuthWebView> {
                   print('WebView console: ${args.join(', ')}');
                 },
               );
-            },
-            onLoadResource: (controller, resource) {
-              print('Loading resource: ${resource.url}');
-            },
-            shouldInterceptAjaxRequest: (controller, ajaxRequest) async {
-              ajaxRequest.headers['Accept-Charset'] = 'utf-8';
-              return ajaxRequest;
-            },
-            shouldInterceptFetchRequest: (controller, fetchRequest) async {
-              fetchRequest.headers['Accept-Charset'] = 'utf-8';
-              return fetchRequest;
             },
             onLoadStart: (controller, url) {
               if (mounted) setState(() => _isLoading = true);
