@@ -1,10 +1,11 @@
 import 'dart:developer';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../models/oauth_provider.dart';
 import '../services/auth_service.dart';
+import 'package:flutter/foundation.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class OAuthWebView extends StatefulWidget {
   final OAuthProvider provider;
@@ -25,6 +26,7 @@ class _OAuthWebViewState extends State<OAuthWebView> {
   WebViewController? _controller;
   bool _isLoading = true;
   String? _error;
+  String? _userAgent;
 
   @override
   void initState() {
@@ -32,43 +34,49 @@ class _OAuthWebViewState extends State<OAuthWebView> {
     _initializeWebView();
   }
 
-  String _manipulateUserAgent(String originalUserAgent) {
-    originalUserAgent = originalUserAgent.replaceAll(RegExp(r'wv|WebView'), '');
-    originalUserAgent = originalUserAgent.replaceAll(
-        RegExp(r'Android SDK built for x86|Emulator'), 'Android Device');
-    originalUserAgent = originalUserAgent.replaceAll(RegExp(r'Flutter'), '');
-    if (Platform.isAndroid) {
-      originalUserAgent = originalUserAgent.replaceAll(
-          RegExp(r'Mobile Safari/[.\d]+'), 'Mobile Safari/537.36');
-    } else if (Platform.isIOS) {
-      originalUserAgent = originalUserAgent.replaceAll(
-          RegExp(r'Mobile/[^\s]+'), 'Mobile/15E148');
-    }
-    return originalUserAgent.trim();
-  }
+  Future<void> _getUserAgent() async {
+    DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
+    PackageInfo packageInfo = await PackageInfo.fromPlatform();
+    String appVersion = packageInfo.version;
 
-  Future<String> _getUserAgent() async {
-    if (Platform.isAndroid || Platform.isIOS) {
-      final controller = WebViewController();
-      await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
-      await controller.loadRequest(Uri.parse('about:blank'));
-      final userAgent =
-          await controller.runJavaScriptReturningResult('navigator.userAgent');
-      return _manipulateUserAgent(userAgent.toString());
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
+      String manufacturer = androidInfo.manufacturer;
+      String model = androidInfo.model;
+      String buildId = androidInfo.id;
+      String osVersion = androidInfo.version.release;
+      // WebView.platform.getVersionInfo() kaldırıldı
+      String webViewVersion = 'unknown';
+
+      _userAgent =
+          'Mozilla/5.0 (Linux; Android $osVersion; $manufacturer $model Build/$buildId) '
+          'AppleWebKit/537.36 (KHTML, like Gecko) '
+          'Chrome/$webViewVersion Mobile Safari/537.36 '
+          '${packageInfo.appName}/$appVersion';
+    } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+      IosDeviceInfo iosInfo = await deviceInfo.iosInfo;
+      String osVersion = iosInfo.systemVersion; // ?? operatörü kaldırıldı
+      String model = iosInfo.model; // ?? operatörü kaldırıldı
+
+      _userAgent =
+          'Mozilla/5.0 (${model.replaceAll(',', ';')}; CPU iPhone OS ${osVersion.replaceAll('.', '_')} like Mac OS X) '
+          'AppleWebKit/605.1.15 (KHTML, like Gecko) '
+          'Version/15.0 Mobile/15E148 Safari/604.1 '
+          '${packageInfo.appName}/$appVersion';
     } else {
-      return 'Mozilla/5.0 (Unknown; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
+      _userAgent =
+          'Mozilla/5.0 (Unknown; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
     }
   }
 
   Future<void> _initializeWebView() async {
     try {
+      await _getUserAgent();
       final authorizationUrl =
           await AuthService.getAuthorizationUrl(widget.provider);
-      final userAgent = await _getUserAgent();
-      log(userAgent);
+      log("User Agent: $_userAgent");
       final controller = WebViewController()
-        ..setUserAgent(
-            "Mozilla/5.0 (Linux; Android 7.1; LG-H900 Build/NRD90C) AppleWebKit/603.33 (KHTML, like Gecko)  Chrome/47.0.1863.197 Mobile Safari/535.5")
+        ..setUserAgent(_userAgent ?? '')
         ..clearCache()
         ..clearLocalStorage()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
