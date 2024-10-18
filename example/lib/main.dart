@@ -30,18 +30,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   AuthorizationTokenResponse? _tokenResponse;
 
-  static const googleDiscoveryUrl =
-      "";
-  static const googleClientId =
-      "";
-  static const googleRedirectUrl = "com.example.njktest2:/oauth2redirect";
-  final List<OAuthProvider> _providers = [
-    const OAuthProvider(
-        name: "Google",
-        discoveryUrl: googleDiscoveryUrl,
-        clientId: googleClientId,
-        redirectUrl: googleRedirectUrl)
-  ];
+  final List<OAuthProvider> _providers = [];
 
   Future<void> _login(OAuthProvider provider) async {
     final result = await AuthService.performOAuthFlow(
