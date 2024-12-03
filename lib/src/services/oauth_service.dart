@@ -1,14 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer';
-import 'package:authwebview/src/widgets/auth_web_view.dart';
+import 'package:authwebview/src/widgets/oauth_web_view.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../models/oauth_provider.dart';
 import '../models/authorization_token_response.dart';
 import '../utils/crypto_utils.dart';
 
-class AuthService {
+class OAuthService {
   static String _state = '';
   static String _codeVerifier = '';
   static String _codeChallenge = '';
