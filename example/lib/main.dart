@@ -33,7 +33,7 @@ class _HomePageState extends State<HomePage> {
   final List<OAuthProvider> _providers = [];
 
   Future<void> _login(OAuthProvider provider) async {
-    final result = await AuthService.performOAuthFlow(
+    final result = await OAuthService.performOAuthFlow(
       context,
       provider,
       loadingWidget: const Center(child: CircularProgressIndicator()),
@@ -45,7 +45,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _logout(OAuthProvider provider, String idTokenHint) async {
-    final success = await AuthService.logout(provider, idTokenHint);
+    final success = await OAuthService.logout(provider, idTokenHint);
     if (success) {
       setState(() {
         _tokenResponse = null;

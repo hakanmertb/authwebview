@@ -2,7 +2,7 @@ import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../models/oauth_provider.dart';
-import '../services/auth_service.dart';
+import '../services/oauth_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -68,7 +68,7 @@ class _OAuthWebViewState extends State<OAuthWebView> {
     try {
       await _getUserAgent();
       final authorizationUrl =
-          await AuthService.getAuthorizationUrl(widget.provider);
+          await OAuthService.getAuthorizationUrl(widget.provider);
 
       final controller = WebViewController()
         ..setUserAgent(_userAgent ?? '')
@@ -97,7 +97,7 @@ class _OAuthWebViewState extends State<OAuthWebView> {
       },
       onNavigationRequest: (NavigationRequest request) {
         if (request.url.startsWith(widget.provider.redirectUrl)) {
-          AuthService.handleRedirect(request.url, widget.provider)
+          OAuthService.handleRedirect(request.url, widget.provider)
               .then((result) {
             if (mounted) Navigator.of(context).pop(result);
           });
