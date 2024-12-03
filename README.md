@@ -52,7 +52,7 @@ final provider = OAuthProvider(
 Perform the OAuth flow:
 
 ```dart
-final result = await AuthService.performOAuthFlow(
+final result = await OAuthService.performOAuthFlow(
   context,
   provider,
   loadingWidget: CircularProgressIndicator(),
@@ -69,7 +69,7 @@ if (result != null) {
 Handle authentication errors:
 
 ```dart
-final result = await AuthService.performOAuthFlow(
+final result = await OAuthService.performOAuthFlow(
   context,
   provider,
   loadingWidget: CircularProgressIndicator(),
@@ -124,7 +124,7 @@ Represents the response containing the authorization tokens.
 The package provides error handling through the `onError` callback in the `performOAuthFlow` method. You can pass a function to handle any errors that occur during the authentication process.
 
 ```dart
-AuthService.performOAuthFlow(
+OAuthService.performOAuthFlow(
   context,
   provider,
   onError: (error) {
