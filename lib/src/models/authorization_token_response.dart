@@ -30,4 +30,17 @@ class AuthorizationTokenResponse {
       authorizationAdditionalParameters: json,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'access_token': accessToken,
+      'refresh_token': refreshToken,
+      'expires_in':
+          accessTokenExpirationDateTime?.difference(DateTime.now()).inSeconds,
+      'id_token': idToken,
+      'token_type': tokenType,
+      'scope': scopes?.join(' '),
+      ...?authorizationAdditionalParameters,
+    };
+  }
 }

@@ -1,17 +1,17 @@
 name: authwebview_example
-description: Example app for AuthWebView package
-version: 1.0.0+1
+description: Example app for AuthWebView package.
 publish_to: 'none'
 
 environment:
   sdk: ^3.5.0
-  flutter: ">=1.17.0"
 
 dependencies:
   flutter:
     sdk: flutter
   authwebview:
     path: ../
+  flutter_secure_storage: ^9.0.0
+  http: ^1.2.2
 
 dev_dependencies:
   flutter_test:
