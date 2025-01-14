@@ -1,6 +1,6 @@
 name: authwebview
 description: A Flutter package for OAuth authentication using WebView. Originally developed for Rapider.ai (https://www.rapider.ai). Supports PKCE, multiple providers, and secure token storage.
-version: 1.0.5
+version: 2.0.0
 homepage: https://github.com/hakanmertb/authwebview
 repository: https://github.com/hakanmertb/authwebview
 

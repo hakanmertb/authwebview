@@ -1,12 +1,18 @@
-## 1.0.5
+## 2.0.0
 
-* Added comprehensive test suite with mockito
-* Enhanced error handling and logging
-* Added const constructors for better performance
-* Updated Material 3 theme compatibility
-* Fixed deprecated API usage
-* Code refactoring and documentation improvements
-* Added http client injection for better testability
+* Major update with breaking changes
+* Complete rewrite of test infrastructure with mockito
+* Enhanced error handling with custom exceptions
+* Added dependency injection for better testability
+* Updated to latest Material 3 design system
+* Improved security with better PKCE implementation
+* Added comprehensive test coverage
+* Enhanced logging system
+* Code refactoring for better maintainability
+* Performance improvements with const constructors
+* Updated all dependencies to latest versions
+* Fixed all deprecated API usages
+* Improved documentation
 
 ## 1.0.4
 
