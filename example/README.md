@@ -1,4 +1,4 @@
-# example
+# authwebview_example
 
 A new Flutter project.
 
