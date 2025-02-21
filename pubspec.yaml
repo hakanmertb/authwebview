@@ -12,10 +12,12 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^1.2.2
-  webview_flutter: ^4.0.0
   crypto: ^3.0.1
   device_info_plus: ^9.0.0
   package_info_plus: ^4.0.0
+  flutter_inappwebview: ^6.1.5
+dependency_overrides:
+  webview_flutter_wkwebview: 3.17.0
 
 dev_dependencies:
   flutter_test:
