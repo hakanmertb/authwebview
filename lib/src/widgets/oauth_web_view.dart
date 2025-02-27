@@ -18,7 +18,7 @@ class OAuthWebView extends StatefulWidget {
     super.key,
     required this.provider,
     this.loadingWidget,
-    this.backgroundColor,
+    this.backgroundColor = Colors.white, // Default to white instead of null
     this.onInitialize,
   });
 
@@ -165,13 +165,16 @@ class _OAuthWebViewState extends State<OAuthWebView>
   Widget build(BuildContext context) {
     if (_isDisposed) return const SizedBox();
 
+    // Get the background color with a fallback to white
+    final backgroundColor = widget.backgroundColor ?? Colors.white;
+
     debugPrint('$_debugTag - Building widget, loading: $_isLoading');
 
     if (_authorizationUrl == null || _userAgent == null) {
       debugPrint(
           '$_debugTag - Showing loading state, authUrl: ${_authorizationUrl != null}, userAgent: ${_userAgent != null}');
       return Scaffold(
-        backgroundColor: widget.backgroundColor,
+        backgroundColor: backgroundColor,
         body: Center(
           child: widget.loadingWidget ?? const CircularProgressIndicator(),
         ),
@@ -179,9 +182,15 @@ class _OAuthWebViewState extends State<OAuthWebView>
     }
 
     return Scaffold(
-      backgroundColor: widget.backgroundColor,
+      backgroundColor: backgroundColor,
       body: Stack(
         children: [
+          // Add a background container to prevent black flash
+          Container(
+            color: backgroundColor,
+            width: double.infinity,
+            height: double.infinity,
+          ),
           InAppWebView(
             initialUrlRequest: URLRequest(url: WebUri(_authorizationUrl!)),
             initialSettings: InAppWebViewSettings(
@@ -189,6 +198,8 @@ class _OAuthWebViewState extends State<OAuthWebView>
               javaScriptEnabled: true,
               userAgent: _userAgent,
               defaultTextEncodingName: 'UTF-8',
+              // Set WebView background to be transparent
+              transparentBackground: true,
             ),
             onWebViewCreated: (controller) {
               _webViewController = controller;
@@ -270,12 +281,24 @@ class _OAuthWebViewState extends State<OAuthWebView>
             },
           ),
           if (_isLoading)
-            Center(
-              child: widget.loadingWidget ?? const CircularProgressIndicator(),
+            Container(
+              color: backgroundColor,
+              child: Center(
+                child:
+                    widget.loadingWidget ?? const CircularProgressIndicator(),
+              ),
             ),
         ],
       ),
     );
+  }
+
+  // Helper function to convert Color to hex string (not needed after removing backgroundColor param)
+  // Kept for reference in case needed elsewhere
+  String colorToHexString(Color color) {
+    return '#${color.r.toInt().toRadixString(16).padLeft(2, '0')}'
+        '${color.g.toInt().toRadixString(16).padLeft(2, '0')}'
+        '${color.b.toInt().toRadixString(16).padLeft(2, '0')}';
   }
 
   @override
