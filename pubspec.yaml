@@ -13,8 +13,8 @@ dependencies:
     sdk: flutter
   http: ^1.2.2
   crypto: ^3.0.1
-  device_info_plus: ^9.0.0
-  package_info_plus: ^4.0.0
+  device_info_plus: ^11.3.3
+  package_info_plus: ^8.3.0
   flutter_inappwebview: ^6.1.5
 dependency_overrides:
   webview_flutter_wkwebview: 3.17.0
