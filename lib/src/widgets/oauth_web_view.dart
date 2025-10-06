@@ -189,15 +189,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
       backgroundColor: backgroundColor,
       body: Stack(
         children: [
-          // Add a background container to prevent black flash
-          Container(
-            color: backgroundColor,
-            width: double.infinity,
-            height: double.infinity,
-            child: Center(
-              child: widget.loadingWidget ?? const CircularProgressIndicator(),
-            ),
-          ),
           InAppWebView(
             initialUrlRequest: URLRequest(url: WebUri(_authorizationUrl!)),
             initialSettings: InAppWebViewSettings(
@@ -205,8 +196,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
               javaScriptEnabled: true,
               userAgent: _userAgent,
               defaultTextEncodingName: 'UTF-8',
-              // Set WebView background to be transparent
-              transparentBackground: true,
               // Disable default error page to prevent infinite loops
               disableDefaultErrorPage: true,
             ),
@@ -462,6 +451,13 @@ class _OAuthWebViewState extends State<OAuthWebView>
               }
             },
           ),
+          if (_isLoading && !_errorPageShown)
+            Container(
+              color: backgroundColor,
+              child: Center(
+                child: widget.loadingWidget ?? const CircularProgressIndicator(),
+              ),
+            ),
           if (_errorPageShown)
             Builder(
               builder: (context) {
