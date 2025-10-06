@@ -105,11 +105,10 @@ class _HomePageState extends State<HomePage> {
       final result = await OAuthService.performOAuthFlow(
         context,
         provider,
-        loadingWidget: const Center(
-          child: CircularProgressIndicator(),
-        ),
-        backgroundColor:
-            Theme.of(context).colorScheme.surface, // background -> surface
+        loadingWidget: const Center(child: CircularProgressIndicator()),
+        backgroundColor: Theme.of(
+          context,
+        ).colorScheme.surface, // background -> surface
       );
 
       if (result != null) {
@@ -168,11 +167,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
@@ -233,8 +228,9 @@ class _HomePageState extends State<HomePage> {
                         onPressed: () => _logout(_providers.first),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Theme.of(context).colorScheme.error,
-                          foregroundColor:
-                              Theme.of(context).colorScheme.onError,
+                          foregroundColor: Theme.of(
+                            context,
+                          ).colorScheme.onError,
                         ),
                         child: const Text('Logout'),
                       ),
