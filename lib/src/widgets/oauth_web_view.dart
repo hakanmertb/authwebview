@@ -35,6 +35,7 @@ class _OAuthWebViewState extends State<OAuthWebView>
   late final String _debugTag;
   InAppWebViewController? _webViewController;
   bool _isDisposed = false;
+  bool _isHandlingRedirect = false;
 
   @override
   void initState() {
@@ -212,10 +213,42 @@ class _OAuthWebViewState extends State<OAuthWebView>
                 },
               );
             },
-            onLoadStart: (controller, url) {
-              if (!_isDisposed && mounted) {
+            onLoadStart: (controller, url) async {
+              if (!_isDisposed && mounted && !_isHandlingRedirect) {
+                final urlString = url?.toString() ?? '';
                 debugPrint(
-                    '$_debugTag - Page load started: ${_maskSensitiveUrl(url?.toString() ?? '')}');
+                    '$_debugTag - Page load started: ${_maskSensitiveUrl(urlString)}');
+
+                // Check if this is the redirect URL
+                if (urlString.startsWith(widget.provider.redirectUrl)) {
+                  _isHandlingRedirect = true;
+                  debugPrint(
+                      '$_debugTag - Redirect URL matched in onLoadStart, handling OAuth redirect');
+
+                  // IMMEDIATELY stop loading and hide WebView
+                  controller.stopLoading();
+                  if (mounted) {
+                    setState(() => _isLoading = true);
+                  }
+
+                  try {
+                    final result =
+                        await OAuthService.handleRedirect(urlString, widget.provider);
+                    debugPrint(
+                        '$_debugTag - OAuth redirect handled successfully');
+                    if (!_isDisposed && mounted) {
+                      Navigator.of(context).pop(result);
+                    }
+                  } catch (e, stackTrace) {
+                    debugPrint('$_debugTag - Error handling redirect: $e');
+                    debugPrint('$_debugTag - Stack trace: $stackTrace');
+                    if (!_isDisposed && mounted) {
+                      Navigator.of(context).pop();
+                    }
+                  }
+                  return;
+                }
+
                 setState(() => _isLoading = true);
               }
             },
@@ -232,23 +265,36 @@ class _OAuthWebViewState extends State<OAuthWebView>
               }
             },
             onReceivedError: (controller, request, error) {
-              if (!_isDisposed) {
+              if (!_isDisposed && !_isHandlingRedirect) {
+                final url = request.url.toString();
                 debugPrint('$_debugTag - WebView error: ${error.description}');
                 debugPrint(
                     '$_debugTag - Error details: code=${error.type}, description=${error.description}');
-                controller.reload();
+
+                // Don't reload if error is for redirect URL
+                if (!url.startsWith(widget.provider.redirectUrl)) {
+                  controller.reload();
+                }
               }
             },
             shouldOverrideUrlLoading: (controller, navigationAction) async {
-              if (_isDisposed) return NavigationActionPolicy.CANCEL;
+              if (_isDisposed || _isHandlingRedirect) return NavigationActionPolicy.CANCEL;
 
               final url = navigationAction.request.url?.toString() ?? '';
               debugPrint(
                   '$_debugTag - URL navigation request: ${_maskSensitiveUrl(url)}');
 
               if (url.startsWith(widget.provider.redirectUrl)) {
+                _isHandlingRedirect = true;
                 debugPrint(
-                    '$_debugTag - Redirect URL matched, handling OAuth redirect');
+                    '$_debugTag - Redirect URL matched in shouldOverrideUrlLoading, handling OAuth redirect');
+
+                // IMMEDIATELY stop loading and hide WebView
+                controller.stopLoading();
+                if (mounted) {
+                  setState(() => _isLoading = true);
+                }
+
                 try {
                   final result =
                       await OAuthService.handleRedirect(url, widget.provider);
@@ -267,6 +313,42 @@ class _OAuthWebViewState extends State<OAuthWebView>
                 return NavigationActionPolicy.CANCEL;
               }
               return NavigationActionPolicy.ALLOW;
+            },
+            onUpdateVisitedHistory: (controller, url, isReload) async {
+              if (!_isDisposed && mounted && !_isHandlingRedirect) {
+                final urlString = url?.toString() ?? '';
+                debugPrint(
+                    '$_debugTag - Visited history updated: ${_maskSensitiveUrl(urlString)}');
+
+                // Check if this is the redirect URL
+                if (urlString.startsWith(widget.provider.redirectUrl)) {
+                  _isHandlingRedirect = true;
+                  debugPrint(
+                      '$_debugTag - Redirect URL matched in onUpdateVisitedHistory, handling OAuth redirect');
+
+                  // IMMEDIATELY stop loading and hide WebView
+                  controller.stopLoading();
+                  if (mounted) {
+                    setState(() => _isLoading = true);
+                  }
+
+                  try {
+                    final result =
+                        await OAuthService.handleRedirect(urlString, widget.provider);
+                    debugPrint(
+                        '$_debugTag - OAuth redirect handled successfully');
+                    if (!_isDisposed && mounted) {
+                      Navigator.of(context).pop(result);
+                    }
+                  } catch (e, stackTrace) {
+                    debugPrint('$_debugTag - Error handling redirect: $e');
+                    debugPrint('$_debugTag - Stack trace: $stackTrace');
+                    if (!_isDisposed && mounted) {
+                      Navigator.of(context).pop();
+                    }
+                  }
+                }
+              }
             },
             onProgressChanged: (controller, progress) {
               if (!_isDisposed) {
