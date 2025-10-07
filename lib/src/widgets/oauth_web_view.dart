@@ -1,19 +1,21 @@
 // ignore_for_file: use_build_context_synchronously
 
-import 'package:flutter/material.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+
 import '../models/oauth_provider.dart';
 import '../services/oauth_service.dart';
-import 'package:device_info_plus/device_info_plus.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 
 class OAuthWebView extends StatefulWidget {
   final OAuthProvider provider;
   final Widget? loadingWidget;
   final Color? backgroundColor;
   final void Function()? onInitialize;
-  final bool debugDisableRedirectHandling; // TEST ONLY - prevents redirect handling to see error page
+  final bool
+      debugDisableRedirectHandling; // TEST ONLY - prevents redirect handling to see error page
 
   const OAuthWebView({
     super.key,
@@ -21,7 +23,8 @@ class OAuthWebView extends StatefulWidget {
     this.loadingWidget,
     this.backgroundColor = Colors.white, // Default to white instead of null
     this.onInitialize,
-    this.debugDisableRedirectHandling = false, // Default: handle redirects normally
+    this.debugDisableRedirectHandling =
+        false, // Default: handle redirects normally
   });
 
   @override
@@ -40,6 +43,10 @@ class _OAuthWebViewState extends State<OAuthWebView>
   bool _isHandlingRedirect = false;
   bool _errorPageShown = false; // Prevent infinite error loop
 
+  static const int _maxInitializationAttempts = 3;
+  static const Duration _initializationRetryDelay = Duration(seconds: 2);
+  int _initializationAttempts = 0;
+
   @override
   void initState() {
     super.initState();
@@ -53,12 +60,15 @@ class _OAuthWebViewState extends State<OAuthWebView>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
       _disposeWebView();
+    } else if (state == AppLifecycleState.resumed &&
+        !_isDisposed &&
+        _webViewController == null) {
+      _retryAuthorization();
     }
   }
 
   Future<void> _disposeWebView() async {
     if (_webViewController != null) {
-      debugPrint('$_debugTag - Disposing WebView controller');
       _webViewController?.dispose();
       _webViewController = null;
     }
@@ -67,56 +77,168 @@ class _OAuthWebViewState extends State<OAuthWebView>
   Future<void> _initialize() async {
     if (_isDisposed) return;
 
-    debugPrint('$_debugTag - Starting initialization');
     try {
       await Future.wait([
         _getUserAgent(),
         _loadAuthorizationUrl(),
       ]);
-      debugPrint('$_debugTag - Initialization completed successfully');
-    } catch (e) {
+      _initializationAttempts = 0;
+      if (mounted && !_isDisposed) {
+        setState(() {
+          _errorPageShown = false;
+        });
+      }
+    } catch (e, stackTrace) {
       debugPrint('$_debugTag - Initialization failed: $e');
+      debugPrint('$_debugTag - Stack trace: $stackTrace');
+      _initializationAttempts += 1;
+
+      if (_initializationAttempts >= _maxInitializationAttempts) {
+        debugPrint(
+            '$_debugTag - Initialization reached max retry attempts, showing error UI');
+        if (mounted && !_isDisposed) {
+          setState(() {
+            _errorPageShown = true;
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+
+      await Future.delayed(_initializationRetryDelay);
       if (!_isDisposed) {
-        _initialize();
+        await _initialize();
       }
     }
+  }
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    WidgetsBinding.instance.removeObserver(this);
+    _webViewController?.dispose();
+    _webViewController = null;
+    super.dispose();
+  }
+
+  Future<bool> _tryHandleRedirect(
+    String url, {
+    InAppWebViewController? controller,
+    bool loadBlankPage = true,
+  }) async {
+    if (!_shouldHandleRedirect(url)) {
+      return false;
+    }
+
+    debugPrint('$_debugTag - 🎯 Starting redirect handling');
+    debugPrint('$_debugTag - URL: ${_maskSensitiveUrl(url)}');
+
+    _isHandlingRedirect = true;
+
+    if (controller != null) {
+      try {
+        debugPrint('$_debugTag - 🛑 Stopping WebView loading');
+        await controller.stopLoading();
+      } catch (e) {
+        debugPrint('$_debugTag - ⚠️ Failed to stop loading: $e');
+      }
+
+      if (loadBlankPage) {
+        try {
+          debugPrint('$_debugTag - 📄 Loading blank page');
+          await controller.loadData(
+            data: _getBlankPageHtml(),
+            mimeType: 'text/html',
+            encoding: 'utf-8',
+          );
+        } catch (e) {
+          debugPrint('$_debugTag - ⚠️ Failed to load blank page: $e');
+        }
+      }
+    }
+
+    if (mounted && !_isDisposed) {
+      setState(() {
+        _isLoading = true;
+        _errorPageShown = false;
+      });
+    }
+
+    try {
+      debugPrint('$_debugTag - 🔄 Processing OAuth redirect...');
+      final result = await OAuthService.handleRedirect(url, widget.provider);
+      debugPrint('$_debugTag - ✅ OAuth redirect successful');
+      if (!_isDisposed && mounted) {
+        await Navigator.of(context).maybePop(result);
+      }
+    } catch (e, stackTrace) {
+      debugPrint('$_debugTag - ❌ ERROR: OAuth redirect failed: $e');
+      debugPrint('$_debugTag - Stack trace: $stackTrace');
+      if (!_isDisposed && mounted) {
+        await Navigator.of(context).maybePop();
+      }
+    } finally {
+      if (!_isDisposed) {
+        _isHandlingRedirect = false;
+        debugPrint('$_debugTag - 🏁 Redirect handling completed');
+      }
+    }
+
+    return true;
+  }
+
+  bool _shouldHandleRedirect(String url) {
+    if (_isDisposed ||
+        _isHandlingRedirect ||
+        widget.debugDisableRedirectHandling) {
+      return false;
+    }
+
+    return _isRedirectUrl(url);
+  }
+
+  Future<void> _retryAuthorization() async {
+    if (_isDisposed) {
+      return;
+    }
+
+    _initializationAttempts = 0;
+
+    if (mounted) {
+      setState(() {
+        _errorPageShown = false;
+        _isLoading = true;
+      });
+    }
+    await _initialize();
   }
 
   Future<void> _getUserAgent() async {
     if (_isDisposed) return;
 
-    debugPrint('$_debugTag - Getting user agent information');
     try {
       final deviceInfo = DeviceInfoPlugin();
       final packageInfo = await PackageInfo.fromPlatform();
-      debugPrint(
-          '$_debugTag - Package info retrieved: ${packageInfo.appName} ${packageInfo.version}');
 
       final appVersion = packageInfo.version;
 
       if (defaultTargetPlatform == TargetPlatform.android) {
         final androidInfo = await deviceInfo.androidInfo;
-        debugPrint(
-            '$_debugTag - Android device info: ${androidInfo.model} (Android ${androidInfo.version.release})');
         _userAgent =
             'Mozilla/5.0 (Linux; Android ${androidInfo.version.release}; ${androidInfo.model}) '
             'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/Unknown Mobile Safari/537.36 '
             '${packageInfo.appName}/$appVersion';
       } else if (defaultTargetPlatform == TargetPlatform.iOS) {
         final iosInfo = await deviceInfo.iosInfo;
-        debugPrint(
-            '$_debugTag - iOS device info: ${iosInfo.model} (iOS ${iosInfo.systemVersion})');
         _userAgent =
             'Mozilla/5.0 (${iosInfo.model}; CPU iPhone OS ${iosInfo.systemVersion.replaceAll('.', '_')} like Mac OS X) '
             'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1 '
             '${packageInfo.appName}/$appVersion';
       } else {
-        debugPrint('$_debugTag - Unknown platform, using default user agent');
         _userAgent =
             'Mozilla/5.0 (Unknown) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
       }
 
-      debugPrint('$_debugTag - User agent set: $_userAgent');
       if (!_isDisposed && mounted) setState(() {});
     } catch (e, stackTrace) {
       debugPrint('$_debugTag - Error getting user agent: $e');
@@ -129,21 +251,23 @@ class _OAuthWebViewState extends State<OAuthWebView>
   Future<void> _loadAuthorizationUrl() async {
     if (_isDisposed) return;
 
-    debugPrint('$_debugTag - Loading authorization URL');
     try {
       final url = await OAuthService.getAuthorizationUrl(widget.provider);
-      debugPrint(
-          '$_debugTag - Authorization URL loaded: ${_maskSensitiveUrl(url)}');
       if (!_isDisposed && mounted) {
         setState(() => _authorizationUrl = url);
+        if (_webViewController != null) {
+          await _webViewController!.loadUrl(
+            urlRequest: URLRequest(url: WebUri(url)),
+          );
+        }
       }
     } catch (e, stackTrace) {
       debugPrint('$_debugTag - Error loading authorization URL: $e');
       debugPrint('$_debugTag - Stack trace: $stackTrace');
       if (!_isDisposed) {
-        await Future.delayed(const Duration(seconds: 2));
+        await Future.delayed(_initializationRetryDelay);
         if (!_isDisposed && mounted) {
-          _loadAuthorizationUrl();
+          await _loadAuthorizationUrl();
         }
       }
     }
@@ -172,11 +296,7 @@ class _OAuthWebViewState extends State<OAuthWebView>
     // Get the background color with a fallback to white
     final backgroundColor = widget.backgroundColor ?? Colors.white;
 
-    debugPrint('$_debugTag - Building widget, loading: $_isLoading');
-
     if (_authorizationUrl == null || _userAgent == null) {
-      debugPrint(
-          '$_debugTag - Showing loading state, authUrl: ${_authorizationUrl != null}, userAgent: ${_userAgent != null}');
       return Scaffold(
         backgroundColor: backgroundColor,
         body: Center(
@@ -198,270 +318,209 @@ class _OAuthWebViewState extends State<OAuthWebView>
               defaultTextEncodingName: 'UTF-8',
               // Disable default error page to prevent infinite loops
               disableDefaultErrorPage: true,
+              // Additional settings to prevent default error pages
+              supportZoom: false,
+              displayZoomControls: false,
+              clearCache: true,
+              clearSessionCache: true,
+              // Force disable error page rendering
+              useShouldInterceptRequest: true,
             ),
             onWebViewCreated: (controller) {
               _webViewController = controller;
-              debugPrint('$_debugTag - WebView created');
+
               controller.addJavaScriptHandler(
                 handlerName: 'FlutterChannel',
-                callback: (args) {
-                  debugPrint(
-                      '$_debugTag - JavaScript message received: ${args.join(', ')}');
-                },
+                callback: (args) {},
               );
             },
             onLoadStart: (controller, url) async {
-              if (!_isDisposed && mounted && !_isHandlingRedirect) {
-                final urlString = url?.toString() ?? '';
+              if (_isDisposed || !mounted) return;
+
+              final urlString = url?.toString() ?? '';
+              debugPrint(
+                  '$_debugTag - 🌐 [onLoadStart] URL: ${_maskSensitiveUrl(urlString)}');
+
+              final handled = await _tryHandleRedirect(
+                urlString,
+                controller: controller,
+              );
+
+              if (handled) {
                 debugPrint(
-                    '$_debugTag - Page load started: ${_maskSensitiveUrl(urlString)}');
+                    '$_debugTag - 🎯 [onLoadStart] Redirect handled, stopping further processing');
+                return;
+              }
 
-                // Check if this is the redirect URL
-                if (_isRedirectUrl(urlString) && !widget.debugDisableRedirectHandling) {
-                  _isHandlingRedirect = true;
-                  debugPrint(
-                      '$_debugTag - Redirect URL matched in onLoadStart, handling OAuth redirect');
-
-                  // IMMEDIATELY stop loading and prevent error page
-                  controller.stopLoading();
-
-                  // Load blank page to prevent any error display
-                  await controller.loadData(
-                    data: _getBlankPageHtml(),
-                    mimeType: 'text/html',
-                    encoding: 'utf-8',
-                  );
-
-                  if (mounted) {
-                    setState(() => _isLoading = true);
-                  }
-
-                  try {
-                    final result =
-                        await OAuthService.handleRedirect(urlString, widget.provider);
-                    debugPrint(
-                        '$_debugTag - OAuth redirect handled successfully');
-                    if (!_isDisposed && mounted) {
-                      Navigator.of(context).pop(result);
-                    }
-                  } catch (e, stackTrace) {
-                    debugPrint('$_debugTag - ERROR: OAuth redirect failed: $e');
-                    debugPrint('$_debugTag - Stack trace: $stackTrace');
-                    if (!_isDisposed && mounted) {
-                      Navigator.of(context).pop();
-                    }
-                  }
-                  return;
-                }
-
+              if (mounted) {
                 setState(() => _isLoading = true);
               }
             },
             onLoadStop: (controller, url) async {
-              if (!_isDisposed && mounted) {
+              if (_isDisposed || !mounted) return;
+
+              if (_isHandlingRedirect) {
                 debugPrint(
-                    '$_debugTag - Page load completed: ${_maskSensitiveUrl(url?.toString() ?? '')}');
-                if (_firstLoad && widget.onInitialize != null) {
-                  debugPrint('$_debugTag - Calling onInitialize callback');
-                  widget.onInitialize!();
-                  _firstLoad = false;
-                }
-                setState(() => _isLoading = false);
+                    '$_debugTag - ⏸️ [onLoadStop] Skipping - redirect in progress');
+                return;
               }
+
+              debugPrint(
+                  '$_debugTag - ✅ [onLoadStop] Page loaded: ${_maskSensitiveUrl(url?.toString() ?? '')}');
+
+              if (_firstLoad && widget.onInitialize != null) {
+                widget.onInitialize!();
+                _firstLoad = false;
+              }
+
+              setState(() => _isLoading = false);
             },
             onReceivedError: (controller, request, error) async {
-              debugPrint('$_debugTag - onReceivedError called: ${error.description}');
-              debugPrint('$_debugTag - URL: ${request.url}');
-              debugPrint('$_debugTag - _errorPageShown: $_errorPageShown');
-
-              if (_isDisposed || _errorPageShown) {
-                debugPrint('$_debugTag - Skipping error handling (disposed or already shown)');
-                return;
-              }
-
               final url = request.url.toString();
+              debugPrint(
+                  '$_debugTag - ❌ [onReceivedError] ${error.description} - URL: ${_maskSensitiveUrl(url)}');
 
-              // If error is for redirect URL, show error page
-              if (_isRedirectUrl(url)) {
-                debugPrint('$_debugTag - ERROR (expected): ${error.description} for redirect URL');
-                debugPrint('$_debugTag - Error type: ${error.type}');
-                debugPrint('$_debugTag - Setting _errorPageShown = true');
-
-                // Stop any loading
-                controller.stopLoading();
-
-                // Set error state - this will show error overlay
-                if (mounted) {
-                  setState(() {
-                    _errorPageShown = true;
-                    _isLoading = false;
-                  });
-                  debugPrint('$_debugTag - State updated: _errorPageShown=$_errorPageShown, _isLoading=$_isLoading');
-                }
+              if (_isDisposed || !mounted) {
                 return;
               }
 
-              // Real errors - log and reload
-              if (!_isHandlingRedirect) {
-                debugPrint('$_debugTag - ERROR (unexpected): ${error.description}');
-                debugPrint('$_debugTag - Error details: code=${error.type}, url=${_maskSensitiveUrl(url)}');
-                controller.reload();
-              }
-            },
-            shouldOverrideUrlLoading: (controller, navigationAction) async {
-              if (_isDisposed || _isHandlingRedirect) return NavigationActionPolicy.CANCEL;
+              final handled = await _tryHandleRedirect(
+                url,
+                controller: controller,
+              );
 
-              final url = navigationAction.request.url?.toString() ?? '';
-              debugPrint(
-                  '$_debugTag - URL navigation request: ${_maskSensitiveUrl(url)}');
-
-              if (_isRedirectUrl(url) && !widget.debugDisableRedirectHandling) {
-                _isHandlingRedirect = true;
+              if (handled) {
                 debugPrint(
-                    '$_debugTag - Redirect URL matched in shouldOverrideUrlLoading, handling OAuth redirect');
+                    '$_debugTag - 🎯 [onReceivedError] Redirect handled');
+                return;
+              }
 
-                // IMMEDIATELY stop loading and prevent error page
-                controller.stopLoading();
+              if (_errorPageShown || _isHandlingRedirect) {
+                return;
+              }
+              debugPrint(
+                  '$_debugTag - ⚠️ [onReceivedError] Showing error page: ${error.description} (${error.type})');
 
-                // Load blank page to prevent any error display
+              try {
+                await controller.stopLoading();
+              } catch (_) {}
+
+              try {
                 await controller.loadData(
                   data: _getBlankPageHtml(),
                   mimeType: 'text/html',
                   encoding: 'utf-8',
                 );
+              } catch (_) {}
 
-                if (mounted) {
-                  setState(() => _isLoading = true);
-                }
-
-                try {
-                  final result =
-                      await OAuthService.handleRedirect(url, widget.provider);
-                  debugPrint(
-                      '$_debugTag - OAuth redirect handled successfully');
-                  if (!_isDisposed && mounted) {
-                    Navigator.of(context).pop(result);
-                  }
-                } catch (e, stackTrace) {
-                  debugPrint('$_debugTag - ERROR: OAuth redirect failed: $e');
-                  debugPrint('$_debugTag - Stack trace: $stackTrace');
-                  if (!_isDisposed && mounted) {
-                    Navigator.of(context).pop();
-                  }
-                }
+              if (mounted) {
+                setState(() {
+                  _errorPageShown = true;
+                  _isLoading = false;
+                });
+              }
+            },
+            shouldOverrideUrlLoading: (controller, navigationAction) async {
+              if (_isDisposed) {
                 return NavigationActionPolicy.CANCEL;
               }
+
+              final url = navigationAction.request.url?.toString() ?? '';
+              debugPrint(
+                  '$_debugTag - 🔀 [shouldOverrideUrlLoading] URL: ${_maskSensitiveUrl(url)}');
+
+              final handled = await _tryHandleRedirect(
+                url,
+                controller: controller,
+              );
+
+              if (handled) {
+                debugPrint(
+                    '$_debugTag - 🚫 [shouldOverrideUrlLoading] Canceling navigation - redirect handled');
+                return NavigationActionPolicy.CANCEL;
+              }
+
+              if (_isHandlingRedirect) {
+                debugPrint(
+                    '$_debugTag - 🚫 [shouldOverrideUrlLoading] Canceling - redirect in progress');
+                return NavigationActionPolicy.CANCEL;
+              }
+
+              debugPrint(
+                  '$_debugTag - ✅ [shouldOverrideUrlLoading] Allowing navigation');
               return NavigationActionPolicy.ALLOW;
             },
             onUpdateVisitedHistory: (controller, url, isReload) async {
-              if (!_isDisposed && mounted && !_isHandlingRedirect) {
-                final urlString = url?.toString() ?? '';
-                debugPrint(
-                    '$_debugTag - Visited history updated: ${_maskSensitiveUrl(urlString)}');
-
-                // Check if this is the redirect URL
-                if (_isRedirectUrl(urlString) && !widget.debugDisableRedirectHandling) {
-                  _isHandlingRedirect = true;
-                  debugPrint(
-                      '$_debugTag - Redirect URL matched in onUpdateVisitedHistory, handling OAuth redirect');
-
-                  // IMMEDIATELY stop loading and prevent error page
-                  controller.stopLoading();
-
-                  // Load blank page to prevent any error display
-                  await controller.loadData(
-                    data: _getBlankPageHtml(),
-                    mimeType: 'text/html',
-                    encoding: 'utf-8',
-                  );
-
-                  if (mounted) {
-                    setState(() => _isLoading = true);
-                  }
-
-                  try {
-                    final result =
-                        await OAuthService.handleRedirect(urlString, widget.provider);
-                    debugPrint(
-                        '$_debugTag - OAuth redirect handled successfully');
-                    if (!_isDisposed && mounted) {
-                      Navigator.of(context).pop(result);
-                    }
-                  } catch (e, stackTrace) {
-                    debugPrint('$_debugTag - ERROR: OAuth redirect failed: $e');
-                    debugPrint('$_debugTag - Stack trace: $stackTrace');
-                    if (!_isDisposed && mounted) {
-                      Navigator.of(context).pop();
-                    }
-                  }
-                }
+              if (_isDisposed || !mounted) {
+                return;
               }
+
+              final urlString = url?.toString() ?? '';
+              debugPrint(
+                  '$_debugTag - 📚 [onUpdateVisitedHistory] URL: ${_maskSensitiveUrl(urlString)}');
+
+              await _tryHandleRedirect(
+                urlString,
+                controller: controller,
+              );
             },
-            onProgressChanged: (controller, progress) {
-              if (!_isDisposed) {
-                debugPrint('$_debugTag - Loading progress: $progress%');
-              }
-            },
-            onConsoleMessage: (controller, consoleMessage) {
-              if (!_isDisposed) {
-                debugPrint(
-                    '$_debugTag - Console [${consoleMessage.messageLevel.toString().toLowerCase()}]: ${consoleMessage.message}');
-              }
-            },
+            onProgressChanged: (_, __) {},
+            onConsoleMessage: (_, __) {},
             onLoadResource: (controller, resource) async {
-              if (!_isDisposed && !_isHandlingRedirect) {
-                final url = resource.url.toString();
-
-                // 4th safety net: Catch redirect URL at resource load level
-                if (_isRedirectUrl(url) && !widget.debugDisableRedirectHandling) {
-                  _isHandlingRedirect = true;
-                  debugPrint(
-                      '$_debugTag - Redirect URL matched in onLoadResource (4th safety net), handling OAuth redirect');
-
-                  // IMMEDIATELY stop loading and prevent error page
-                  controller.stopLoading();
-
-                  // Load blank page to prevent any error display
-                  await controller.loadData(
-                    data: _getBlankPageHtml(),
-                    mimeType: 'text/html',
-                    encoding: 'utf-8',
-                  );
-
-                  if (mounted) {
-                    setState(() => _isLoading = true);
-                  }
-
-                  try {
-                    final result =
-                        await OAuthService.handleRedirect(url, widget.provider);
-                    debugPrint(
-                        '$_debugTag - OAuth redirect handled successfully');
-                    if (!_isDisposed && mounted) {
-                      Navigator.of(context).pop(result);
-                    }
-                  } catch (e, stackTrace) {
-                    debugPrint('$_debugTag - ERROR: OAuth redirect failed: $e');
-                    debugPrint('$_debugTag - Stack trace: $stackTrace');
-                    if (!_isDisposed && mounted) {
-                      Navigator.of(context).pop();
-                    }
-                  }
-                }
+              if (_isDisposed || _isHandlingRedirect) {
+                return;
               }
+
+              final url = resource.url.toString();
+              debugPrint(
+                  '$_debugTag - 📦 [onLoadResource] Resource: ${_maskSensitiveUrl(url)}');
+
+              await _tryHandleRedirect(
+                url,
+                controller: controller,
+              );
+            },
+            shouldInterceptRequest: (controller, request) async {
+              if (_isDisposed) {
+                return null;
+              }
+
+              final url = request.url.toString();
+              debugPrint(
+                  '$_debugTag - 🔍 [shouldInterceptRequest] URL: ${_maskSensitiveUrl(url)}');
+
+              final handled = await _tryHandleRedirect(
+                url,
+                controller: controller,
+                loadBlankPage: false,
+              );
+
+              if (handled || _isHandlingRedirect) {
+                debugPrint(
+                    '$_debugTag - 🛑 [shouldInterceptRequest] Intercepting request - returning blank response');
+                return WebResourceResponse(
+                  contentType: 'text/html',
+                  contentEncoding: 'utf-8',
+                  statusCode: 200,
+                  reasonPhrase: 'OK',
+                  data: Uint8List.fromList(_getBlankPageHtml().codeUnits),
+                );
+              }
+
+              return null; // Allow other requests to proceed normally
             },
           ),
           if (_isLoading && !_errorPageShown)
             Container(
               color: backgroundColor,
               child: Center(
-                child: widget.loadingWidget ?? const CircularProgressIndicator(),
+                child:
+                    widget.loadingWidget ?? const CircularProgressIndicator(),
               ),
             ),
           if (_errorPageShown)
             Builder(
               builder: (context) {
-                debugPrint('$_debugTag - Building error overlay');
                 return Container(
                   color: backgroundColor,
                   child: Center(
@@ -533,6 +592,7 @@ class _OAuthWebViewState extends State<OAuthWebView>
                   height: 1.6,
                 ),
               ),
+              const SizedBox(height: 24),
             ],
           ),
         ),
@@ -584,9 +644,9 @@ extension on _OAuthWebViewState {
     String bgColor = 'ffffff';
     if (widget.backgroundColor != null) {
       final color = widget.backgroundColor!;
-      bgColor = '${color.r.toInt().toRadixString(16).padLeft(2, '0')}'
-          '${color.g.toInt().toRadixString(16).padLeft(2, '0')}'
-          '${color.b.toInt().toRadixString(16).padLeft(2, '0')}';
+      bgColor = '${color.red.toRadixString(16).padLeft(2, '0')}'
+          '${color.green.toRadixString(16).padLeft(2, '0')}'
+          '${color.blue.toRadixString(16).padLeft(2, '0')}';
     }
     return '<html><body style="margin:0;background:#$bgColor;"></body></html>';
   }
@@ -596,31 +656,158 @@ extension on _OAuthWebViewState {
   /// - Custom schemes: com.example.app://redirect
   /// - HTTP(S) URLs: http://example.com/callback or https://example.com/callback
   /// - Malformed custom schemes: http://com.example.app//redirect (some OAuth providers do this)
+  /// - Hybrid schemes: https://domain://path (some providers incorrectly format like this)
   bool _isRedirectUrl(String url) {
     final redirectUrl = widget.provider.redirectUrl;
 
-    // Direct match - works for all formats
-    if (url.startsWith(redirectUrl)) return true;
+    debugPrint('$_debugTag - 🔍 Checking redirect URL');
+    debugPrint('$_debugTag - Expected: $redirectUrl');
+    debugPrint('$_debugTag - Incoming: $url');
 
-    // Handle malformed custom scheme URLs from OAuth providers
-    // Some providers incorrectly convert: com.example.app://path
-    // To: http://com.example.app//path (note the double slash)
-    // This only applies to custom schemes, not http(s):// URLs
+    // 1. Direct prefix match (works for URLs with query parameters)
+    // Example: com.example.app://oauth2redirect matches com.example.app://oauth2redirect?code=123
+    if (url.startsWith(redirectUrl)) {
+      debugPrint('$_debugTag - ✅ YAKALANDI: Direct prefix match');
+      return true;
+    }
+
+    // 2. Check without query parameters for exact match
+    final urlWithoutQuery = url.split('?')[0].split('#')[0];
+    if (urlWithoutQuery == redirectUrl) {
+      debugPrint('$_debugTag - ✅ YAKALANDI: Exact match without query params');
+      return true;
+    }
+
+    // 3. Parse and compare URIs
+    final redirectUri = Uri.tryParse(redirectUrl);
+    final incomingUri = Uri.tryParse(url);
+
+    if (redirectUri != null && incomingUri != null) {
+      // Compare schemes (case-insensitive)
+      final sameScheme =
+          redirectUri.scheme.toLowerCase() == incomingUri.scheme.toLowerCase();
+
+      if (sameScheme) {
+        // Get authorities (handle missing authority for custom schemes)
+        final redirectAuthority =
+            redirectUri.hasAuthority ? redirectUri.authority.toLowerCase() : '';
+        final incomingAuthority =
+            incomingUri.hasAuthority ? incomingUri.authority.toLowerCase() : '';
+
+        // For custom schemes without authority, compare paths directly
+        if (!redirectUri.hasAuthority && !incomingUri.hasAuthority) {
+          final redirectPath = redirectUri.path;
+          final incomingPath = incomingUri.path;
+
+          if (redirectPath == incomingPath ||
+              incomingPath.startsWith(redirectPath)) {
+            debugPrint(
+                '$_debugTag - ✅ YAKALANDI: Custom scheme path match (scheme: ${redirectUri.scheme})');
+            return true;
+          }
+        }
+
+        // For URLs with authority, compare both authority and path
+        if (redirectAuthority == incomingAuthority &&
+            redirectAuthority.isNotEmpty) {
+          final redirectPath =
+              redirectUri.path.isEmpty ? '/' : redirectUri.path;
+          final incomingPath =
+              incomingUri.path.isEmpty ? '/' : incomingUri.path;
+
+          if (redirectPath == '/' ||
+              incomingPath == redirectPath ||
+              incomingPath.startsWith('$redirectPath/') ||
+              incomingPath.startsWith(redirectPath)) {
+            debugPrint(
+                '$_debugTag - ✅ YAKALANDI: URI match (scheme: ${redirectUri.scheme}, authority: $redirectAuthority)');
+            return true;
+          }
+        }
+      }
+    }
+
+    // 4. Check for malformed custom schemes
+    if (_matchesMalformedCustomScheme(redirectUrl, url)) {
+      return true;
+    }
+
+    // 5. Check for hybrid schemes like https://domain://path
+    if (_matchesHybridScheme(redirectUrl, url)) {
+      return true;
+    }
+
+    debugPrint(
+        '$_debugTag - ❌ NOT matched: No pattern matched the redirect URL');
+    return false;
+  }
+
+  /// Checks for malformed custom scheme URLs
+  /// Example: com.example.app://path -> http://com.example.app//path
+  bool _matchesMalformedCustomScheme(String redirectUrl, String url) {
+    if (!redirectUrl.contains('://') ||
+        redirectUrl.startsWith('http://') ||
+        redirectUrl.startsWith('https://')) {
+      return false;
+    }
+
+    final parts = redirectUrl.split('://');
+    final scheme = parts[0];
+    final path = parts.length > 1 ? parts[1] : '';
+
+    // Check http:// prefix malformation
+    final httpMalformed = 'http://$scheme//$path';
+    if (url.startsWith(httpMalformed) || url.split('?')[0] == httpMalformed) {
+      debugPrint('$_debugTag - ✅ YAKALANDI: Malformed custom scheme (http://)');
+      debugPrint('$_debugTag - Pattern: $httpMalformed');
+      return true;
+    }
+
+    // Check https:// prefix malformation
+    final httpsMalformed = 'https://$scheme//$path';
+    if (url.startsWith(httpsMalformed) || url.split('?')[0] == httpsMalformed) {
+      debugPrint(
+          '$_debugTag - ✅ YAKALANDI: Malformed custom scheme (https://)');
+      debugPrint('$_debugTag - Pattern: $httpsMalformed');
+      return true;
+    }
+
+    return false;
+  }
+
+  /// Checks for hybrid scheme URLs like https://domain://path
+  /// Some OAuth providers incorrectly format URLs this way
+  bool _matchesHybridScheme(String redirectUrl, String url) {
+    // Check if redirect URL has a hybrid format: protocol://domain://path
     if (redirectUrl.contains('://') &&
-        !redirectUrl.startsWith('http://') &&
-        !redirectUrl.startsWith('https://')) {
-
-      final parts = redirectUrl.split('://');
-      final scheme = parts[0]; // com.example.app
-      final path = parts.length > 1 ? parts[1] : ''; // oauth2redirect
-
-      // Check if URL matches malformed pattern: http://scheme//path
-      final malformedPattern = 'http://$scheme//$path';
-      if (url.startsWith(malformedPattern)) {
-        debugPrint('$_debugTag - MATCHED malformed redirect URL pattern');
-        debugPrint('$_debugTag - Expected: $redirectUrl');
-        debugPrint('$_debugTag - Got: $url');
+        redirectUrl.indexOf('://') != redirectUrl.lastIndexOf('://')) {
+      // Hybrid format detected in redirect URL
+      final normalizedUrl = url.split('?')[0].split('#')[0];
+      if (normalizedUrl == redirectUrl || url.startsWith(redirectUrl)) {
+        debugPrint('$_debugTag - ✅ YAKALANDI: Hybrid scheme format');
+        debugPrint('$_debugTag - Format: [protocol]://[domain]://[path]');
         return true;
+      }
+    }
+
+    // Check if incoming URL has hybrid format but redirect URL doesn't
+    if (url.contains('://') && url.indexOf('://') != url.lastIndexOf('://')) {
+      // Try to match the pattern
+      final urlParts = url.split('://');
+      if (urlParts.length >= 3) {
+        // Reconstruct possible redirect URL variations
+        final possibleRedirect1 =
+            '${urlParts[1]}://${urlParts[2].split('?')[0]}';
+        final possibleRedirect2 =
+            '${urlParts[0]}://${urlParts[1]}://${urlParts[2].split('?')[0]}';
+
+        if (redirectUrl == possibleRedirect1 ||
+            redirectUrl == possibleRedirect2) {
+          debugPrint('$_debugTag - ✅ YAKALANDI: Hybrid scheme variation');
+          debugPrint(
+              '$_debugTag - Matched pattern: $possibleRedirect1 or $possibleRedirect2');
+          return true;
+        }
       }
     }
 

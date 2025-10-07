@@ -59,6 +59,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    _clearTokens();
     _loadSavedTokens();
   }
 
@@ -177,69 +178,76 @@ class _HomePageState extends State<HomePage> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (_tokenResponse == null) ...[
-              const Text(
-                'Choose a provider to login:',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 20),
-              ..._providers.map(
-                (provider) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: ElevatedButton(
-                    onPressed: () => _login(provider),
-                    child: Text('Login with ${provider.name}'),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (_tokenResponse == null) ...[
+                const Text(
+                  'Choose a provider to login:',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 20),
+                ..._providers.map(
+                  (provider) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: ElevatedButton(
+                      onPressed: () => _login(provider),
+                      child: Text('Login with ${provider.name}'),
+                    ),
                   ),
                 ),
-              ),
-            ] else ...[
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Authentication Successful!',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green,
+              ] else ...[
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Authentication Successful!',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 20),
-                      Text('Access Token: ${_tokenResponse!.accessToken}'),
-                      if (_tokenResponse!.refreshToken != null) ...[
-                        const SizedBox(height: 10),
-                        Text('Refresh Token: ${_tokenResponse!.refreshToken}'),
+                        const SizedBox(height: 20),
+                        Text('Access Token: ${_tokenResponse!.accessToken}'),
+                        if (_tokenResponse!.refreshToken != null) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            'Refresh Token: ${_tokenResponse!.refreshToken}',
+                          ),
+                        ],
+                        if (_tokenResponse!.accessTokenExpirationDateTime !=
+                            null) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            'Expires: ${_tokenResponse!.accessTokenExpirationDateTime}',
+                          ),
+                        ],
+                        const SizedBox(height: 20),
+                        ElevatedButton(
+                          onPressed: () => _logout(_providers.first),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Theme.of(
+                              context,
+                            ).colorScheme.error,
+                            foregroundColor: Theme.of(
+                              context,
+                            ).colorScheme.onError,
+                          ),
+                          child: const Text('Logout'),
+                        ),
                       ],
-                      if (_tokenResponse!.accessTokenExpirationDateTime !=
-                          null) ...[
-                        const SizedBox(height: 10),
-                        Text(
-                          'Expires: ${_tokenResponse!.accessTokenExpirationDateTime}',
-                        ),
-                      ],
-                      const SizedBox(height: 20),
-                      ElevatedButton(
-                        onPressed: () => _logout(_providers.first),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(context).colorScheme.error,
-                          foregroundColor: Theme.of(
-                            context,
-                          ).colorScheme.onError,
-                        ),
-                        child: const Text('Logout'),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
