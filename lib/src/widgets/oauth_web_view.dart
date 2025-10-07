@@ -52,7 +52,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _debugTag = 'OAuthWebView[${widget.provider.name}]';
-    debugPrint('$_debugTag - Initializing');
     _initialize();
   }
 
@@ -89,13 +88,9 @@ class _OAuthWebViewState extends State<OAuthWebView>
         });
       }
     } catch (e, stackTrace) {
-      debugPrint('$_debugTag - Initialization failed: $e');
-      debugPrint('$_debugTag - Stack trace: $stackTrace');
       _initializationAttempts += 1;
 
       if (_initializationAttempts >= _maxInitializationAttempts) {
-        debugPrint(
-            '$_debugTag - Initialization reached max retry attempts, showing error UI');
         if (mounted && !_isDisposed) {
           setState(() {
             _errorPageShown = true;
@@ -130,30 +125,21 @@ class _OAuthWebViewState extends State<OAuthWebView>
       return false;
     }
 
-    debugPrint('$_debugTag - 🎯 Starting redirect handling');
-    debugPrint('$_debugTag - URL: ${_maskSensitiveUrl(url)}');
-
     _isHandlingRedirect = true;
 
     if (controller != null) {
       try {
-        debugPrint('$_debugTag - 🛑 Stopping WebView loading');
         await controller.stopLoading();
-      } catch (e) {
-        debugPrint('$_debugTag - ⚠️ Failed to stop loading: $e');
-      }
+      } catch (e) {}
 
       if (loadBlankPage) {
         try {
-          debugPrint('$_debugTag - 📄 Loading blank page');
           await controller.loadData(
             data: _getBlankPageHtml(),
             mimeType: 'text/html',
             encoding: 'utf-8',
           );
-        } catch (e) {
-          debugPrint('$_debugTag - ⚠️ Failed to load blank page: $e');
-        }
+        } catch (e) {}
       }
     }
 
@@ -165,22 +151,17 @@ class _OAuthWebViewState extends State<OAuthWebView>
     }
 
     try {
-      debugPrint('$_debugTag - 🔄 Processing OAuth redirect...');
       final result = await OAuthService.handleRedirect(url, widget.provider);
-      debugPrint('$_debugTag - ✅ OAuth redirect successful');
       if (!_isDisposed && mounted) {
         await Navigator.of(context).maybePop(result);
       }
     } catch (e, stackTrace) {
-      debugPrint('$_debugTag - ❌ ERROR: OAuth redirect failed: $e');
-      debugPrint('$_debugTag - Stack trace: $stackTrace');
       if (!_isDisposed && mounted) {
         await Navigator.of(context).maybePop();
       }
     } finally {
       if (!_isDisposed) {
         _isHandlingRedirect = false;
-        debugPrint('$_debugTag - 🏁 Redirect handling completed');
       }
     }
 
@@ -240,9 +221,7 @@ class _OAuthWebViewState extends State<OAuthWebView>
       }
 
       if (!_isDisposed && mounted) setState(() {});
-    } catch (e, stackTrace) {
-      debugPrint('$_debugTag - Error getting user agent: $e');
-      debugPrint('$_debugTag - Stack trace: $stackTrace');
+    } catch (e) {
       _userAgent =
           'Mozilla/5.0 (Unknown) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Mobile Safari/537.36';
     }
@@ -262,8 +241,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
         }
       }
     } catch (e, stackTrace) {
-      debugPrint('$_debugTag - Error loading authorization URL: $e');
-      debugPrint('$_debugTag - Stack trace: $stackTrace');
       if (!_isDisposed) {
         await Future.delayed(_initializationRetryDelay);
         if (!_isDisposed && mounted) {
@@ -273,27 +250,10 @@ class _OAuthWebViewState extends State<OAuthWebView>
     }
   }
 
-  String _maskSensitiveUrl(String url) {
-    try {
-      final uri = Uri.parse(url);
-      final maskedParams = uri.queryParameters.map((key, value) {
-        if (['client_id', 'state', 'code_verifier', 'code_challenge']
-            .contains(key)) {
-          return MapEntry(key, '***');
-        }
-        return MapEntry(key, value);
-      });
-      return uri.replace(queryParameters: maskedParams).toString();
-    } catch (e) {
-      return 'Invalid URL';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_isDisposed) return const SizedBox();
 
-    // Get the background color with a fallback to white
     final backgroundColor = widget.backgroundColor ?? Colors.white;
 
     if (_authorizationUrl == null || _userAgent == null) {
@@ -316,14 +276,11 @@ class _OAuthWebViewState extends State<OAuthWebView>
               javaScriptEnabled: true,
               userAgent: _userAgent,
               defaultTextEncodingName: 'UTF-8',
-              // Disable default error page to prevent infinite loops
               disableDefaultErrorPage: true,
-              // Additional settings to prevent default error pages
               supportZoom: false,
               displayZoomControls: false,
               clearCache: true,
               clearSessionCache: true,
-              // Force disable error page rendering
               useShouldInterceptRequest: true,
             ),
             onWebViewCreated: (controller) {
@@ -338,8 +295,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
               if (_isDisposed || !mounted) return;
 
               final urlString = url?.toString() ?? '';
-              debugPrint(
-                  '$_debugTag - 🌐 [onLoadStart] URL: ${_maskSensitiveUrl(urlString)}');
 
               final handled = await _tryHandleRedirect(
                 urlString,
@@ -347,8 +302,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
               );
 
               if (handled) {
-                debugPrint(
-                    '$_debugTag - 🎯 [onLoadStart] Redirect handled, stopping further processing');
                 return;
               }
 
@@ -360,13 +313,8 @@ class _OAuthWebViewState extends State<OAuthWebView>
               if (_isDisposed || !mounted) return;
 
               if (_isHandlingRedirect) {
-                debugPrint(
-                    '$_debugTag - ⏸️ [onLoadStop] Skipping - redirect in progress');
                 return;
               }
-
-              debugPrint(
-                  '$_debugTag - ✅ [onLoadStop] Page loaded: ${_maskSensitiveUrl(url?.toString() ?? '')}');
 
               if (_firstLoad && widget.onInitialize != null) {
                 widget.onInitialize!();
@@ -377,8 +325,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
             },
             onReceivedError: (controller, request, error) async {
               final url = request.url.toString();
-              debugPrint(
-                  '$_debugTag - ❌ [onReceivedError] ${error.description} - URL: ${_maskSensitiveUrl(url)}');
 
               if (_isDisposed || !mounted) {
                 return;
@@ -390,16 +336,12 @@ class _OAuthWebViewState extends State<OAuthWebView>
               );
 
               if (handled) {
-                debugPrint(
-                    '$_debugTag - 🎯 [onReceivedError] Redirect handled');
                 return;
               }
 
               if (_errorPageShown || _isHandlingRedirect) {
                 return;
               }
-              debugPrint(
-                  '$_debugTag - ⚠️ [onReceivedError] Showing error page: ${error.description} (${error.type})');
 
               try {
                 await controller.stopLoading();
@@ -426,8 +368,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
               }
 
               final url = navigationAction.request.url?.toString() ?? '';
-              debugPrint(
-                  '$_debugTag - 🔀 [shouldOverrideUrlLoading] URL: ${_maskSensitiveUrl(url)}');
 
               final handled = await _tryHandleRedirect(
                 url,
@@ -435,19 +375,13 @@ class _OAuthWebViewState extends State<OAuthWebView>
               );
 
               if (handled) {
-                debugPrint(
-                    '$_debugTag - 🚫 [shouldOverrideUrlLoading] Canceling navigation - redirect handled');
                 return NavigationActionPolicy.CANCEL;
               }
 
               if (_isHandlingRedirect) {
-                debugPrint(
-                    '$_debugTag - 🚫 [shouldOverrideUrlLoading] Canceling - redirect in progress');
                 return NavigationActionPolicy.CANCEL;
               }
 
-              debugPrint(
-                  '$_debugTag - ✅ [shouldOverrideUrlLoading] Allowing navigation');
               return NavigationActionPolicy.ALLOW;
             },
             onUpdateVisitedHistory: (controller, url, isReload) async {
@@ -456,8 +390,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
               }
 
               final urlString = url?.toString() ?? '';
-              debugPrint(
-                  '$_debugTag - 📚 [onUpdateVisitedHistory] URL: ${_maskSensitiveUrl(urlString)}');
 
               await _tryHandleRedirect(
                 urlString,
@@ -472,8 +404,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
               }
 
               final url = resource.url.toString();
-              debugPrint(
-                  '$_debugTag - 📦 [onLoadResource] Resource: ${_maskSensitiveUrl(url)}');
 
               await _tryHandleRedirect(
                 url,
@@ -486,8 +416,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
               }
 
               final url = request.url.toString();
-              debugPrint(
-                  '$_debugTag - 🔍 [shouldInterceptRequest] URL: ${_maskSensitiveUrl(url)}');
 
               final handled = await _tryHandleRedirect(
                 url,
@@ -496,8 +424,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
               );
 
               if (handled || _isHandlingRedirect) {
-                debugPrint(
-                    '$_debugTag - 🛑 [shouldInterceptRequest] Intercepting request - returning blank response');
                 return WebResourceResponse(
                   contentType: 'text/html',
                   contentEncoding: 'utf-8',
@@ -534,9 +460,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
     );
   }
 
-  // Helper function to convert Color to hex string (not needed after removing backgroundColor param)
-  // Kept for reference in case needed elsewhere
-  /// Builds error widget to show as overlay
   Widget _buildErrorWidget() {
     final bgColor = widget.backgroundColor ?? Colors.white;
 
@@ -548,7 +471,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Icon container
               Container(
                 width: 80,
                 height: 80,
@@ -571,7 +493,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
                 ),
               ),
               const SizedBox(height: 32),
-              // Title
               const Text(
                 'Authentication Error',
                 style: TextStyle(
@@ -582,7 +503,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
                 ),
               ),
               const SizedBox(height: 16),
-              // Message
               const Text(
                 'Something went wrong during authentication',
                 textAlign: TextAlign.center,
@@ -601,7 +521,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
   }
 }
 
-/// Custom painter for error icon (alert circle)
 class _ErrorIconPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -610,14 +529,12 @@ class _ErrorIconPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0;
 
-    // Draw circle
     canvas.drawCircle(
       Offset(size.width / 2, size.height / 2),
       size.width / 2 - 1,
       paint,
     );
 
-    // Draw exclamation mark line
     paint.style = PaintingStyle.fill;
     paint.strokeCap = StrokeCap.round;
     canvas.drawLine(
@@ -626,7 +543,6 @@ class _ErrorIconPainter extends CustomPainter {
       paint..strokeWidth = 2.5,
     );
 
-    // Draw exclamation mark dot
     canvas.drawCircle(
       Offset(size.width / 2, size.height * 0.7),
       1.5,
@@ -639,7 +555,6 @@ class _ErrorIconPainter extends CustomPainter {
 }
 
 extension on _OAuthWebViewState {
-  /// Generates blank page HTML with background color
   String _getBlankPageHtml() {
     String bgColor = 'ffffff';
     if (widget.backgroundColor != null) {
@@ -648,66 +563,44 @@ extension on _OAuthWebViewState {
           '${color.green.toRadixString(16).padLeft(2, '0')}'
           '${color.blue.toRadixString(16).padLeft(2, '0')}';
     }
-    return '<html><body style="margin:0;background:#$bgColor;"></body></html>';
+    return '<html><body style=\"margin:0;background:#$bgColor;\"></body></html>';
   }
 
-  /// Checks if URL is a redirect URL, handling malformed URLs from OAuth providers
-  /// Supports any redirect URL format:
-  /// - Custom schemes: com.example.app://redirect
-  /// - HTTP(S) URLs: http://example.com/callback or https://example.com/callback
-  /// - Malformed custom schemes: http://com.example.app//redirect (some OAuth providers do this)
-  /// - Hybrid schemes: https://domain://path (some providers incorrectly format like this)
   bool _isRedirectUrl(String url) {
     final redirectUrl = widget.provider.redirectUrl;
 
-    debugPrint('$_debugTag - 🔍 Checking redirect URL');
-    debugPrint('$_debugTag - Expected: $redirectUrl');
-    debugPrint('$_debugTag - Incoming: $url');
-
-    // 1. Direct prefix match (works for URLs with query parameters)
-    // Example: com.example.app://oauth2redirect matches com.example.app://oauth2redirect?code=123
     if (url.startsWith(redirectUrl)) {
-      debugPrint('$_debugTag - ✅ YAKALANDI: Direct prefix match');
       return true;
     }
 
-    // 2. Check without query parameters for exact match
     final urlWithoutQuery = url.split('?')[0].split('#')[0];
     if (urlWithoutQuery == redirectUrl) {
-      debugPrint('$_debugTag - ✅ YAKALANDI: Exact match without query params');
       return true;
     }
 
-    // 3. Parse and compare URIs
     final redirectUri = Uri.tryParse(redirectUrl);
     final incomingUri = Uri.tryParse(url);
 
     if (redirectUri != null && incomingUri != null) {
-      // Compare schemes (case-insensitive)
       final sameScheme =
           redirectUri.scheme.toLowerCase() == incomingUri.scheme.toLowerCase();
 
       if (sameScheme) {
-        // Get authorities (handle missing authority for custom schemes)
         final redirectAuthority =
             redirectUri.hasAuthority ? redirectUri.authority.toLowerCase() : '';
         final incomingAuthority =
             incomingUri.hasAuthority ? incomingUri.authority.toLowerCase() : '';
 
-        // For custom schemes without authority, compare paths directly
         if (!redirectUri.hasAuthority && !incomingUri.hasAuthority) {
           final redirectPath = redirectUri.path;
           final incomingPath = incomingUri.path;
 
           if (redirectPath == incomingPath ||
               incomingPath.startsWith(redirectPath)) {
-            debugPrint(
-                '$_debugTag - ✅ YAKALANDI: Custom scheme path match (scheme: ${redirectUri.scheme})');
             return true;
           }
         }
 
-        // For URLs with authority, compare both authority and path
         if (redirectAuthority == incomingAuthority &&
             redirectAuthority.isNotEmpty) {
           final redirectPath =
@@ -719,31 +612,23 @@ extension on _OAuthWebViewState {
               incomingPath == redirectPath ||
               incomingPath.startsWith('$redirectPath/') ||
               incomingPath.startsWith(redirectPath)) {
-            debugPrint(
-                '$_debugTag - ✅ YAKALANDI: URI match (scheme: ${redirectUri.scheme}, authority: $redirectAuthority)');
             return true;
           }
         }
       }
     }
 
-    // 4. Check for malformed custom schemes
     if (_matchesMalformedCustomScheme(redirectUrl, url)) {
       return true;
     }
 
-    // 5. Check for hybrid schemes like https://domain://path
     if (_matchesHybridScheme(redirectUrl, url)) {
       return true;
     }
 
-    debugPrint(
-        '$_debugTag - ❌ NOT matched: No pattern matched the redirect URL');
     return false;
   }
 
-  /// Checks for malformed custom scheme URLs
-  /// Example: com.example.app://path -> http://com.example.app//path
   bool _matchesMalformedCustomScheme(String redirectUrl, String url) {
     if (!redirectUrl.contains('://') ||
         redirectUrl.startsWith('http://') ||
@@ -755,47 +640,31 @@ extension on _OAuthWebViewState {
     final scheme = parts[0];
     final path = parts.length > 1 ? parts[1] : '';
 
-    // Check http:// prefix malformation
     final httpMalformed = 'http://$scheme//$path';
     if (url.startsWith(httpMalformed) || url.split('?')[0] == httpMalformed) {
-      debugPrint('$_debugTag - ✅ YAKALANDI: Malformed custom scheme (http://)');
-      debugPrint('$_debugTag - Pattern: $httpMalformed');
       return true;
     }
 
-    // Check https:// prefix malformation
     final httpsMalformed = 'https://$scheme//$path';
     if (url.startsWith(httpsMalformed) || url.split('?')[0] == httpsMalformed) {
-      debugPrint(
-          '$_debugTag - ✅ YAKALANDI: Malformed custom scheme (https://)');
-      debugPrint('$_debugTag - Pattern: $httpsMalformed');
       return true;
     }
 
     return false;
   }
 
-  /// Checks for hybrid scheme URLs like https://domain://path
-  /// Some OAuth providers incorrectly format URLs this way
   bool _matchesHybridScheme(String redirectUrl, String url) {
-    // Check if redirect URL has a hybrid format: protocol://domain://path
     if (redirectUrl.contains('://') &&
         redirectUrl.indexOf('://') != redirectUrl.lastIndexOf('://')) {
-      // Hybrid format detected in redirect URL
       final normalizedUrl = url.split('?')[0].split('#')[0];
       if (normalizedUrl == redirectUrl || url.startsWith(redirectUrl)) {
-        debugPrint('$_debugTag - ✅ YAKALANDI: Hybrid scheme format');
-        debugPrint('$_debugTag - Format: [protocol]://[domain]://[path]');
         return true;
       }
     }
 
-    // Check if incoming URL has hybrid format but redirect URL doesn't
     if (url.contains('://') && url.indexOf('://') != url.lastIndexOf('://')) {
-      // Try to match the pattern
       final urlParts = url.split('://');
       if (urlParts.length >= 3) {
-        // Reconstruct possible redirect URL variations
         final possibleRedirect1 =
             '${urlParts[1]}://${urlParts[2].split('?')[0]}';
         final possibleRedirect2 =
@@ -803,9 +672,6 @@ extension on _OAuthWebViewState {
 
         if (redirectUrl == possibleRedirect1 ||
             redirectUrl == possibleRedirect2) {
-          debugPrint('$_debugTag - ✅ YAKALANDI: Hybrid scheme variation');
-          debugPrint(
-              '$_debugTag - Matched pattern: $possibleRedirect1 or $possibleRedirect2');
           return true;
         }
       }
