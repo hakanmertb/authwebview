@@ -269,20 +269,34 @@ class _OAuthWebViewState extends State<OAuthWebView>
       backgroundColor: backgroundColor,
       body: Stack(
         children: [
-          InAppWebView(
-            initialUrlRequest: URLRequest(url: WebUri(_authorizationUrl!)),
-            initialSettings: InAppWebViewSettings(
-              cacheEnabled: false,
-              javaScriptEnabled: true,
-              userAgent: _userAgent,
-              defaultTextEncodingName: 'UTF-8',
-              disableDefaultErrorPage: true,
-              supportZoom: false,
-              displayZoomControls: false,
-              clearCache: true,
-              clearSessionCache: true,
-              useShouldInterceptRequest: true,
-            ),
+          // Background container to prevent black flash
+          Container(
+            color: backgroundColor,
+            width: double.infinity,
+            height: double.infinity,
+          ),
+          // WebView with opacity animation
+          AnimatedOpacity(
+            opacity: _isLoading ? 0.0 : 1.0,
+            duration: const Duration(milliseconds: 200),
+            child: InAppWebView(
+              initialUrlRequest: URLRequest(url: WebUri(_authorizationUrl!)),
+              initialSettings: InAppWebViewSettings(
+                cacheEnabled: false,
+                javaScriptEnabled: true,
+                userAgent: _userAgent,
+                defaultTextEncodingName: 'UTF-8',
+                disableDefaultErrorPage: true,
+                supportZoom: false,
+                displayZoomControls: false,
+                clearCache: true,
+                clearSessionCache: true,
+                useShouldInterceptRequest: true,
+                transparentBackground: true,
+                // iOS: Prevent jumping during focus changes
+                suppressesIncrementalRendering: true,
+                allowsInlineMediaPlayback: true,
+              ),
             onWebViewCreated: (controller) {
               _webViewController = controller;
 
@@ -435,6 +449,7 @@ class _OAuthWebViewState extends State<OAuthWebView>
 
               return null; // Allow other requests to proceed normally
             },
+            ),
           ),
           if (_isLoading && !_errorPageShown)
             Container(
