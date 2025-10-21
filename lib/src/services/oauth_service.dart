@@ -60,6 +60,28 @@ class OAuthService {
     }
   }
 
+  /// Builds an OAuth WebView widget that emits callbacks for authorization lifecycle events.
+  ///
+  /// This allows embedding the OAuth flow directly inside widget trees without relying on
+  /// Navigator pushes. When callbacks are not supplied, the widget retains its default behaviour.
+  static Widget buildOAuthFlow({
+    required OAuthProvider provider,
+    required void Function(AuthorizationTokenResponse result) onCompleted,
+    VoidCallback? onCancelled,
+    void Function(Object error)? onError,
+    Widget? loadingWidget,
+    Color? backgroundColor,
+  }) {
+    return OAuthWebView(
+      provider: provider,
+      loadingWidget: loadingWidget,
+      backgroundColor: backgroundColor,
+      onAuthorizationCompleted: onCompleted,
+      onAuthorizationCancelled: onCancelled,
+      onAuthorizationError: onError,
+    );
+  }
+
   /// Performs the logout process for the authenticated user.
   /// 
   /// Uses the provider's end_session_endpoint from the discovery document.

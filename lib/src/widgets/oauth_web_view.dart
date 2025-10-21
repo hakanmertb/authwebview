@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../models/authorization_token_response.dart';
 import '../models/oauth_provider.dart';
 import '../services/oauth_service.dart';
 
@@ -16,6 +17,10 @@ class OAuthWebView extends StatefulWidget {
   final void Function()? onInitialize;
   final bool
       debugDisableRedirectHandling; // TEST ONLY - prevents redirect handling to see error page
+  final void Function(AuthorizationTokenResponse result)?
+      onAuthorizationCompleted;
+  final void Function(Object error)? onAuthorizationError;
+  final VoidCallback? onAuthorizationCancelled;
 
   const OAuthWebView({
     super.key,
@@ -25,6 +30,9 @@ class OAuthWebView extends StatefulWidget {
     this.onInitialize,
     this.debugDisableRedirectHandling =
         false, // Default: handle redirects normally
+    this.onAuthorizationCompleted,
+    this.onAuthorizationError,
+    this.onAuthorizationCancelled,
   });
 
   @override
@@ -37,7 +45,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
   bool _firstLoad = true;
   String? _authorizationUrl;
   String? _userAgent;
-  late final String _debugTag;
   InAppWebViewController? _webViewController;
   bool _isDisposed = false;
   bool _isHandlingRedirect = false;
@@ -51,7 +58,6 @@ class _OAuthWebViewState extends State<OAuthWebView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _debugTag = 'OAuthWebView[${widget.provider.name}]';
     _initialize();
   }
 
@@ -87,7 +93,7 @@ class _OAuthWebViewState extends State<OAuthWebView>
           _errorPageShown = false;
         });
       }
-    } catch (e, stackTrace) {
+    } catch (e) {
       _initializationAttempts += 1;
 
       if (_initializationAttempts >= _maxInitializationAttempts) {
@@ -130,7 +136,9 @@ class _OAuthWebViewState extends State<OAuthWebView>
     if (controller != null) {
       try {
         await controller.stopLoading();
-      } catch (e) {}
+      } catch (e) {
+        // Suppress errors
+      }
 
       if (loadBlankPage) {
         try {
@@ -139,7 +147,9 @@ class _OAuthWebViewState extends State<OAuthWebView>
             mimeType: 'text/html',
             encoding: 'utf-8',
           );
-        } catch (e) {}
+        } catch (e) {
+          // Suppress errors
+        }
       }
     }
 
@@ -153,11 +163,26 @@ class _OAuthWebViewState extends State<OAuthWebView>
     try {
       final result = await OAuthService.handleRedirect(url, widget.provider);
       if (!_isDisposed && mounted) {
-        await Navigator.of(context).maybePop(result);
+        if (result != null && widget.onAuthorizationCompleted != null) {
+          widget.onAuthorizationCompleted!(result);
+        } else if (result != null) {
+          await Navigator.of(context).maybePop(result);
+        } else {
+          final error = Exception('Authorization result was null');
+          if (widget.onAuthorizationError != null) {
+            widget.onAuthorizationError!(error);
+          } else {
+            await Navigator.of(context).maybePop();
+          }
+        }
       }
-    } catch (e, stackTrace) {
+    } catch (e) {
       if (!_isDisposed && mounted) {
-        await Navigator.of(context).maybePop();
+        if (widget.onAuthorizationError != null) {
+          widget.onAuthorizationError!(e);
+        } else {
+          await Navigator.of(context).maybePop();
+        }
       }
     } finally {
       if (!_isDisposed) {
@@ -240,7 +265,7 @@ class _OAuthWebViewState extends State<OAuthWebView>
           );
         }
       }
-    } catch (e, stackTrace) {
+    } catch (e) {
       if (!_isDisposed) {
         await Future.delayed(_initializationRetryDelay);
         if (!_isDisposed && mounted) {
@@ -265,20 +290,26 @@ class _OAuthWebViewState extends State<OAuthWebView>
       );
     }
 
-    return Scaffold(
-      backgroundColor: backgroundColor,
-      body: Stack(
-        children: [
-          // Background container to prevent black flash
-          Container(
-            color: backgroundColor,
-            width: double.infinity,
-            height: double.infinity,
-          ),
-          // WebView with opacity animation
-          AnimatedOpacity(
-            opacity: _isLoading ? 0.0 : 1.0,
-            duration: const Duration(milliseconds: 200),
+    return WillPopScope(
+      onWillPop: () async {
+        widget.onAuthorizationCancelled?.call();
+        return true;
+      },
+      child: Scaffold(
+        backgroundColor: backgroundColor,
+        resizeToAvoidBottomInset: false,
+        body: Stack(
+          children: [
+            // Background container to prevent black flash
+            Container(
+              color: backgroundColor,
+              width: double.infinity,
+              height: double.infinity,
+            ),
+            // WebView with opacity animation
+            AnimatedOpacity(
+              opacity: _isLoading ? 0.0 : 1.0,
+              duration: const Duration(milliseconds: 200),
             child: InAppWebView(
               initialUrlRequest: URLRequest(url: WebUri(_authorizationUrl!)),
               initialSettings: InAppWebViewSettings(
@@ -296,6 +327,7 @@ class _OAuthWebViewState extends State<OAuthWebView>
                 // iOS: Prevent jumping during focus changes
                 suppressesIncrementalRendering: true,
                 allowsInlineMediaPlayback: true,
+                preferredContentMode: UserPreferredContentMode.MOBILE,
               ),
             onWebViewCreated: (controller) {
               _webViewController = controller;
@@ -339,41 +371,72 @@ class _OAuthWebViewState extends State<OAuthWebView>
             },
             onReceivedError: (controller, request, error) async {
               final url = request.url.toString();
+              if (_isDisposed || !mounted) return;
 
-              if (_isDisposed || !mounted) {
-                return;
+              final handled = await _tryHandleRedirect(url, controller: controller);
+              if (handled) return;
+
+              // A list of network, security, or URL errors that make loading the main frame impossible.
+              final unrecoverableErrors = [
+                WebResourceErrorType.HOST_LOOKUP,
+                WebResourceErrorType.IO, // General I/O error, covers connection issues
+                WebResourceErrorType.TIMEOUT,
+                WebResourceErrorType.FAILED_SSL_HANDSHAKE,
+                WebResourceErrorType.BAD_URL,
+                WebResourceErrorType.UNKNOWN,
+                // Android-specific error for when HTTP is blocked.
+                WebResourceErrorType.UNSAFE_RESOURCE,
+              ];
+
+              // Only show the fatal error page for unrecoverable errors on the main frame.
+              if (request.isForMainFrame == true &&
+                  unrecoverableErrors.contains(error.type)) {
+                if (_errorPageShown || _isHandlingRedirect) return;
+
+                try {
+                  await controller.stopLoading();
+                  await controller.loadData(
+                    data: _getBlankPageHtml(),
+                    mimeType: 'text/html',
+                    encoding: 'utf-8',
+                  );
+                } catch (_) {
+                  // Suppress errors
+                }
+
+                if (mounted) {
+                  setState(() {
+                    _errorPageShown = true;
+                    _isLoading = false;
+                  });
+                }
               }
+            },
+            onReceivedHttpError: (controller, request, response) async {
+              if (_isDisposed || !mounted) return;
 
-              final handled = await _tryHandleRedirect(
-                url,
-                controller: controller,
-              );
+              // Show fatal error for HTTP errors (4xx, 5xx) on the main frame.
+              if (request.isForMainFrame == true &&
+                  (response.statusCode ?? 0) >= 400) {
+                if (_errorPageShown || _isHandlingRedirect) return;
 
-              if (handled) {
-                return;
-              }
+                try {
+                  await controller.stopLoading();
+                  await controller.loadData(
+                    data: _getBlankPageHtml(),
+                    mimeType: 'text/html',
+                    encoding: 'utf-8',
+                  );
+                } catch (_) {
+                  // Suppress errors
+                }
 
-              if (_errorPageShown || _isHandlingRedirect) {
-                return;
-              }
-
-              try {
-                await controller.stopLoading();
-              } catch (_) {}
-
-              try {
-                await controller.loadData(
-                  data: _getBlankPageHtml(),
-                  mimeType: 'text/html',
-                  encoding: 'utf-8',
-                );
-              } catch (_) {}
-
-              if (mounted) {
-                setState(() {
-                  _errorPageShown = true;
-                  _isLoading = false;
-                });
+                if (mounted) {
+                  setState(() {
+                    _errorPageShown = true;
+                    _isLoading = false;
+                  });
+                }
               }
             },
             shouldOverrideUrlLoading: (controller, navigationAction) async {
@@ -449,28 +512,29 @@ class _OAuthWebViewState extends State<OAuthWebView>
 
               return null; // Allow other requests to proceed normally
             },
-            ),
-          ),
-          if (_isLoading && !_errorPageShown)
-            Container(
-              color: backgroundColor,
-              child: Center(
-                child:
-                    widget.loadingWidget ?? const CircularProgressIndicator(),
               ),
             ),
-          if (_errorPageShown)
-            Builder(
-              builder: (context) {
-                return Container(
-                  color: backgroundColor,
-                  child: Center(
-                    child: _buildErrorWidget(),
-                  ),
-                );
-              },
-            ),
-        ],
+            if (_isLoading && !_errorPageShown)
+              Container(
+                color: backgroundColor,
+                child: Center(
+                  child:
+                      widget.loadingWidget ?? const CircularProgressIndicator(),
+                ),
+              ),
+            if (_errorPageShown)
+              Builder(
+                builder: (context) {
+                  return Container(
+                    color: backgroundColor,
+                    child: Center(
+                      child: _buildErrorWidget(),
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -494,7 +558,7 @@ class _OAuthWebViewState extends State<OAuthWebView>
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.08),
+                      color: Colors.black.withOpacity(0.08),
                       blurRadius: 12,
                       offset: const Offset(0, 4),
                     ),
@@ -527,7 +591,29 @@ class _OAuthWebViewState extends State<OAuthWebView>
                   height: 1.6,
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 40),
+              ElevatedButton(
+                onPressed: _retryAuthorization,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1A1A1A),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 40,
+                    vertical: 16,
+                  ),
+                  elevation: 0,
+                ),
+                child: const Text(
+                  'Retry',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -574,11 +660,14 @@ extension on _OAuthWebViewState {
     String bgColor = 'ffffff';
     if (widget.backgroundColor != null) {
       final color = widget.backgroundColor!;
-      bgColor = '${color.red.toRadixString(16).padLeft(2, '0')}'
-          '${color.green.toRadixString(16).padLeft(2, '0')}'
-          '${color.blue.toRadixString(16).padLeft(2, '0')}';
+      final r = (color.value >> 16) & 0xFF;
+      final g = (color.value >> 8) & 0xFF;
+      final b = color.value & 0xFF;
+      bgColor = '${r.toRadixString(16).padLeft(2, '0')}'
+          '${g.toRadixString(16).padLeft(2, '0')}'
+          '${b.toRadixString(16).padLeft(2, '0')}';
     }
-    return '<html><body style=\"margin:0;background:#$bgColor;\"></body></html>';
+    return '<html><body style="margin:0;background:#$bgColor;"></body></html>';
   }
 
   bool _isRedirectUrl(String url) {
